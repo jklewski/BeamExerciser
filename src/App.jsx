@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import BeamSVG from './components/svg/BeamSVG.jsx'
 import SplineEditor from './components/exerciser/SplineEditor.jsx'
 import { generateRandomBeam } from './utils/randomBeam.js'
 import { beamSolverDSM } from './utils/beamSolverDSM.js'
+
+const BEAM_SVG_W = 520  // native viewBox width of BeamSVG
 
 // ── DSM helpers ───────────────────────────────────────────────────────────────
 function toDSMSupport(type) {
@@ -35,29 +37,28 @@ function computeDiagrams(beamState) {
   }
 }
 
-// ── Round up to nearest nice interval ────────────────────────────────────────
 function niceMax(val, interval = 5) {
   return Math.ceil(val / interval) * interval || interval
 }
-
-// ── Header button styles ──────────────────────────────────────────────────────
-const headerBtn = (primary = false, disabled = false) => ({
-  padding: '0.35rem 0.9rem',
-  borderRadius: 5,
-  border: primary ? 'none' : '1px solid rgba(255,255,255,0.35)',
-  background: primary ? (disabled ? '#4b5563' : '#16a34a') : 'rgba(255,255,255,0.12)',
-  color: '#fff',
-  cursor: disabled ? 'default' : 'pointer',
-  fontSize: '0.875rem',
-  fontWeight: 500,
-  opacity: disabled ? 0.6 : 1,
-})
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [beamState, setBeamState] = useState(() => generateRandomBeam())
   const [dsmResult, setDsmResult] = useState(null)
   const [revealed,  setRevealed]  = useState(false)
+
+  // Measure beam card content width to scale BeamSVG responsively
+  const beamContentRef = useRef(null)
+  const [beamContentWidth, setBeamContentWidth] = useState(BEAM_SVG_W)
+
+  useEffect(() => {
+    if (!beamContentRef.current) return
+    const ro = new ResizeObserver(entries => {
+      setBeamContentWidth(entries[0].contentRect.width)
+    })
+    ro.observe(beamContentRef.current)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     setDsmResult(computeDiagrams(beamState))
@@ -80,20 +81,16 @@ export default function App() {
   const vStartValue = dsmResult ? dsmResult.vVals[0] : null
   const mStartValue = dsmResult ? dsmResult.mVals[0] : null
 
-  const vRevealed = revealed && dsmResult
-    ? { xs: dsmResult.vXs, vals: dsmResult.vVals }
-    : null
-  const mRevealed = revealed && dsmResult
-    ? { xs: dsmResult.mXs, vals: dsmResult.mVals }
-    : null
+  const vRevealed = revealed && dsmResult ? { xs: dsmResult.vXs, vals: dsmResult.vVals } : null
+  const mRevealed = revealed && dsmResult ? { xs: dsmResult.mXs, vals: dsmResult.mVals } : null
 
-  // BeamSVG props (strip internal UI fields)
   const beamFigureProps = {
     L:                    beamState.L,
     supports:             beamState.supports,
     loads:                beamState.loads.map(({ id, ...rest }) => rest),
     intermediateSupports: beamState.intermediateSupports.map(s => s.frac),
     showDimension:        true,
+    scale:                Math.min(1, beamContentWidth / BEAM_SVG_W),
   }
 
   return (
@@ -102,13 +99,12 @@ export default function App() {
       {/* Header */}
       <div style={{
         background: '#1a1a2e', color: '#fff',
-        padding: '0.75rem 1.5rem',
-        display: 'flex', alignItems: 'center', gap: '0.75rem',
+        padding: '0.6rem 1rem',
+        display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
       }}>
-        <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.02em' }}>
+        <h1 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, letterSpacing: '0.02em', flex: '1 1 auto' }}>
           BeamExerciser
         </h1>
-        <div style={{ flex: 1 }} />
         <button style={headerBtn(false)} onClick={handleNewBeam}>New Beam</button>
         <button
           style={headerBtn(true, revealed)}
@@ -121,22 +117,22 @@ export default function App() {
 
       {/* Body */}
       <div style={{
-        maxWidth: 580, margin: '0 auto',
-        padding: '1.5rem 1rem',
-        display: 'flex', flexDirection: 'column', gap: '1.25rem',
+        maxWidth: 620, margin: '0 auto',
+        padding: '0.75rem 0.5rem',
+        display: 'flex', flexDirection: 'column', gap: '0.75rem',
       }}>
 
         {/* Beam diagram */}
         <div style={cardStyle}>
           <div style={sectionLabel}>Beam</div>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <div ref={beamContentRef} style={{ width: '100%', overflow: 'hidden' }}>
             <BeamSVG {...beamFigureProps} />
           </div>
         </div>
 
         {/* Shear force editor */}
         <div style={cardStyle}>
-          <div style={sectionLabel}>Draw the Shear Force Diagram — V(x)</div>
+          <div style={sectionLabel}>Shear Force — V(x)</div>
           <SplineEditor
             key={`v-${beamState.L}-${beamState.supports.left}-${beamState.supports.right}`}
             Ltot={beamState.L}
@@ -152,7 +148,7 @@ export default function App() {
 
         {/* Bending moment editor */}
         <div style={cardStyle}>
-          <div style={sectionLabel}>Draw the Bending Moment Diagram — M(x)</div>
+          <div style={sectionLabel}>Bending Moment — M(x)</div>
           <SplineEditor
             key={`m-${beamState.L}-${beamState.supports.left}-${beamState.supports.right}`}
             Ltot={beamState.L}
@@ -172,18 +168,31 @@ export default function App() {
   )
 }
 
+const headerBtn = (primary = false, disabled = false) => ({
+  padding: '0.4rem 0.85rem',
+  borderRadius: 5,
+  border: primary ? 'none' : '1px solid rgba(255,255,255,0.35)',
+  background: primary ? (disabled ? '#4b5563' : '#16a34a') : 'rgba(255,255,255,0.12)',
+  color: '#fff',
+  cursor: disabled ? 'default' : 'pointer',
+  fontSize: '0.85rem',
+  fontWeight: 500,
+  opacity: disabled ? 0.6 : 1,
+  minHeight: 36,
+})
+
 const cardStyle = {
   background: '#fff',
   border: '1px solid #e5e7eb',
   borderRadius: 10,
-  padding: '1rem 1.25rem',
+  padding: '0.75rem 0.75rem',
 }
 
 const sectionLabel = {
-  fontSize: '0.8rem',
+  fontSize: '0.75rem',
   fontWeight: 600,
   color: '#6b7280',
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
-  marginBottom: '0.6rem',
+  marginBottom: '0.5rem',
 }

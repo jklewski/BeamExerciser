@@ -40,18 +40,14 @@ function makeInitialPoints(Ltot) {
 // ── Path builder (stroke) ─────────────────────────────────────────────────────
 function buildPath(sorted, Ltot, maxVal, invert) {
   if (sorted.length < 1) return ''
-  const sx  = p => toSvgX(p.x, Ltot).toFixed(2)
-  const sy  = v => toSvgY(v, maxVal, invert).toFixed(2)
-
+  const sx = p => toSvgX(p.x, Ltot).toFixed(2)
+  const sy = v => toSvgY(v, maxVal, invert).toFixed(2)
   let d = `M ${sx(sorted[0])} ${sy(sorted[0].y)}`
-
   for (let i = 0; i < sorted.length - 1; i++) {
     const p = sorted[i]
     const q = sorted[i + 1]
-
     const pDepSvgY = p.yExit !== null ? sy(p.yExit) : sy(p.y)
     if (p.yExit !== null) d += ` M ${sx(p)} ${pDepSvgY}`
-
     const useBez = p.rightType === 'bezier' || q.leftType === 'bezier'
     if (useBez) {
       const pSvgX = toSvgX(p.x, Ltot)
@@ -70,7 +66,7 @@ function buildPath(sorted, Ltot, maxVal, invert) {
   return d
 }
 
-// ── Fill path (closed trapezoids per segment, handles discontinuities) ────────
+// ── Fill path (closed per segment to zero axis) ───────────────────────────────
 function buildFillPath(sorted, Ltot, maxVal, invert) {
   if (sorted.length < 2) return ''
   let d = ''
@@ -82,9 +78,7 @@ function buildFillPath(sorted, Ltot, maxVal, invert) {
     const pSvgY = toSvgY(pDepY, maxVal, invert)
     const qSvgX = toSvgX(q.x, Ltot)
     const qSvgY = toSvgY(q.y, maxVal, invert)
-
     d += `M ${pSvgX.toFixed(2)} ${midY} L ${pSvgX.toFixed(2)} ${pSvgY.toFixed(2)} `
-
     const useBez = p.rightType === 'bezier' || q.leftType === 'bezier'
     if (useBez) {
       const cp1x = p.rightType === 'bezier' ? pSvgX + p.rightHandle.dx : pSvgX
@@ -109,7 +103,7 @@ function buildRevealPath(xs, vals, Ltot, maxVal, invert) {
   return `M ${pts[0]} ` + pts.slice(1).map(p => `L ${p}`).join(' ')
 }
 
-// ── Spline evaluation at arbitrary x (for accuracy metric) ───────────────────
+// ── Spline evaluation at x (for accuracy metric) ──────────────────────────────
 function cubicBezierAt(p0, p1, p2, p3, t) {
   const mt = 1 - t
   return mt*mt*mt*p0 + 3*mt*mt*t*p1 + 3*mt*t*t*p2 + t*t*t*p3
@@ -119,21 +113,16 @@ function evaluateSplineAtX(sorted, x, Ltot, maxVal, invert) {
   if (sorted.length < 2) return 0
   if (x <= sorted[0].x) return sorted[0].y
   if (x >= sorted[sorted.length - 1].x) return sorted[sorted.length - 1].y
-
   for (let i = 0; i < sorted.length - 1; i++) {
     const p = sorted[i]
     const q = sorted[i + 1]
     if (x < p.x || x > q.x) continue
-
     const pDepY = p.yExit !== null ? p.yExit : p.y
     const useBez = p.rightType === 'bezier' || q.leftType === 'bezier'
-
     if (!useBez) {
       const t = (x - p.x) / (q.x - p.x)
       return pDepY + t * (q.y - pDepY)
     }
-
-    // Bezier: binary search for t where bezierX(t) == targetSvgX
     const pSvgX = toSvgX(p.x, Ltot)
     const pSvgY = toSvgY(pDepY, maxVal, invert)
     const qSvgX = toSvgX(q.x, Ltot)
@@ -142,13 +131,11 @@ function evaluateSplineAtX(sorted, x, Ltot, maxVal, invert) {
     const cp1y = p.rightType === 'bezier' ? pSvgY + p.rightHandle.dy : pSvgY
     const cp2x = q.leftType  === 'bezier' ? qSvgX + q.leftHandle.dx  : qSvgX
     const cp2y = q.leftType  === 'bezier' ? qSvgY + q.leftHandle.dy  : qSvgY
-
     const targetSvgX = toSvgX(x, Ltot)
     let lo = 0, hi = 1
     for (let k = 0; k < 40; k++) {
       const mid = (lo + hi) / 2
-      if (cubicBezierAt(pSvgX, cp1x, cp2x, qSvgX, mid) < targetSvgX) lo = mid
-      else hi = mid
+      if (cubicBezierAt(pSvgX, cp1x, cp2x, qSvgX, mid) < targetSvgX) lo = mid; else hi = mid
     }
     const svgY = cubicBezierAt(pSvgY, cp1y, cp2y, qSvgY, (lo + hi) / 2)
     return fromSvgY(svgY, maxVal, invert)
@@ -160,10 +147,7 @@ function interpolateSolution(sxs, vals, x) {
   if (x <= sxs[0]) return vals[0]
   if (x >= sxs[sxs.length - 1]) return vals[vals.length - 1]
   let lo = 0, hi = sxs.length - 1
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1
-    if (sxs[mid] <= x) lo = mid; else hi = mid
-  }
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (sxs[mid] <= x) lo = mid; else hi = mid }
   const t = (x - sxs[lo]) / (sxs[hi] - sxs[lo])
   return vals[lo] + t * (vals[hi] - vals[lo])
 }
@@ -171,37 +155,28 @@ function interpolateSolution(sxs, vals, x) {
 function computeAccuracy(sorted, revealed, Ltot, maxVal, invert) {
   if (!revealed || sorted.length < 2) return null
   const { xs: sxs, vals } = revealed
-
   const N = 200
   const sampleXs  = Array.from({ length: N }, (_, i) => (i / (N - 1)) * Ltot)
   const drawnVals = sampleXs.map(x => evaluateSplineAtX(sorted, x, Ltot, maxVal, invert))
   const solVals   = sampleXs.map(x => interpolateSolution(sxs, vals, x))
-
-  // Absolute error score (normalised by maxVal)
   let totalAbsErr = 0
   for (let i = 0; i < N; i++) totalAbsErr += Math.abs(drawnVals[i] - solVals[i])
   const absScore = Math.max(0, 1 - totalAbsErr / N / maxVal)
-
-  // Slope score (central differences, normalised by max solution slope)
   const dx = Ltot / (N - 1)
-  let maxSolSlope = maxVal / Ltot * 0.1  // floor to avoid div-by-zero
+  let maxSolSlope = maxVal / Ltot * 0.1
   for (let i = 1; i < N - 1; i++) {
     const s = Math.abs((solVals[i + 1] - solVals[i - 1]) / (2 * dx))
     if (s > maxSolSlope) maxSolSlope = s
   }
   let totalSlopeErr = 0
   for (let i = 1; i < N - 1; i++) {
-    const dSlope = Math.abs(
+    totalSlopeErr += Math.abs(
       (drawnVals[i + 1] - drawnVals[i - 1]) / (2 * dx) -
       (solVals[i + 1]   - solVals[i - 1])   / (2 * dx)
-    )
-    totalSlopeErr += dSlope / maxSolSlope
+    ) / maxSolSlope
   }
   const slopeScore = Math.max(0, 1 - totalSlopeErr / (N - 2) / 2)
-
-  // Weighted average: 60 % absolute, 40 % slope
   const total = 0.6 * absScore + 0.4 * slopeScore
-
   return {
     absScore:   Math.round(absScore   * 100),
     slopeScore: Math.round(slopeScore * 100),
@@ -212,8 +187,9 @@ function computeAccuracy(sorted, revealed, Ltot, maxVal, invert) {
 // ── Button style helper ───────────────────────────────────────────────────────
 function btnStyle(active, enabled = true) {
   return {
-    padding: '0.22rem 0.55rem',
-    fontSize: '0.72rem',
+    padding: '0.35rem 0.6rem',
+    fontSize: '0.75rem',
+    minHeight: 34,
     border: `1px solid ${active ? '#2563eb' : '#d1d5db'}`,
     borderRadius: 4,
     background: active ? '#2563eb' : '#fff',
@@ -221,6 +197,7 @@ function btnStyle(active, enabled = true) {
     cursor: enabled ? 'pointer' : 'default',
     opacity: enabled ? 1 : 0.5,
     userSelect: 'none',
+    touchAction: 'manipulation',
   }
 }
 
@@ -241,27 +218,27 @@ export default function SplineEditor({
     setDragging(null)
   }, [Ltot])
 
-  // ── Coordinate helper ──────────────────────────────────────────────────────
-  function clientToSvg(e) {
+  // ── Convert client coords → SVG viewBox coords ─────────────────────────────
+  function clientToSvg(clientX, clientY) {
     const rect = svgRef.current.getBoundingClientRect()
     return {
-      svgX: (e.clientX - rect.left) / rect.width  * W,
-      svgY: (e.clientY - rect.top)  / rect.height * H,
+      svgX: (clientX - rect.left) / rect.width  * W,
+      svgY: (clientY - rect.top)  / rect.height * H,
     }
   }
 
-  // ── Helper: is a point an endpoint (first or last by x)? ──────────────────
+  // ── Endpoint detection ─────────────────────────────────────────────────────
   function isEndpointId(id) {
     const s = [...points].sort((a, b) => a.x - b.x)
     return s[0].id === id || s[s.length - 1].id === id
   }
 
-  // ── Global mouse tracking ──────────────────────────────────────────────────
+  // ── Global pointer tracking (covers mouse + touch via Pointer Events) ───────
   useEffect(() => {
     if (!dragging) return
 
     function onMove(e) {
-      const { svgX, svgY } = clientToSvg(e)
+      const { svgX, svgY } = clientToSvg(e.clientX, e.clientY)
 
       if (dragging.type === 'point') {
         setPoints(prev => {
@@ -303,11 +280,12 @@ export default function SplineEditor({
     }
 
     function onUp() { setDragging(null) }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup',   onUp)
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup',   onUp)
     return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup',   onUp)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup',   onUp)
     }
   }, [dragging, Ltot, maxVal, invertY])
 
@@ -323,12 +301,12 @@ export default function SplineEditor({
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedId, points])
 
-  // ── Mouse event handlers ───────────────────────────────────────────────────
-  function handleSvgMouseDown(e) {
+  // ── Pointer event handlers ─────────────────────────────────────────────────
+  function handleSvgPointerDown(e) {
     if (e.target !== svgRef.current && !e.target.dataset.bg) return
-    const { svgX, svgY } = clientToSvg(e)
+    const { svgX, svgY } = clientToSvg(e.clientX, e.clientY)
     if (svgX < x0 - 5 || svgX > x1 + 5) return
-    const xM  = Math.max(0.001, Math.min(Ltot - 0.001, fromSvgX(svgX, Ltot)))
+    const xM   = Math.max(0.001, Math.min(Ltot - 0.001, fromSvgX(svgX, Ltot)))
     const yVal = Math.max(-maxVal, Math.min(maxVal, fromSvgY(svgY, maxVal, invertY)))
     const newPt = makePoint(`p-${Date.now()}`, xM, yVal)
     setPoints(prev => [...prev, newPt].sort((a, b) => a.x - b.x))
@@ -336,18 +314,18 @@ export default function SplineEditor({
     setDragging({ type: 'point', id: newPt.id })
   }
 
-  function handleKnotMouseDown(e, ptId) {
+  function handleKnotPointerDown(e, ptId) {
     e.stopPropagation()
     setSelectedId(ptId)
     if (!isEndpointId(ptId)) setDragging({ type: 'point', id: ptId })
   }
 
-  function handleHandleMouseDown(e, ptId, side) {
+  function handleHandlePointerDown(e, ptId, side) {
     e.stopPropagation()
     setDragging({ type: 'handle', id: ptId, side })
   }
 
-  function handleExitMouseDown(e, ptId) {
+  function handleExitPointerDown(e, ptId) {
     e.stopPropagation()
     setSelectedId(ptId)
     setDragging({ type: 'exitPoint', id: ptId })
@@ -361,11 +339,11 @@ export default function SplineEditor({
   }
 
   // ── Toolbar actions ────────────────────────────────────────────────────────
-  const sel     = points.find(p => p.id === selectedId)
-  const sorted  = [...points].sort((a, b) => a.x - b.x)
-  const selIdx  = sel ? sorted.findIndex(p => p.id === sel.id) : -1
-  const hasLeft  = selIdx > 0
-  const hasRight = selIdx < sorted.length - 1 && selIdx !== -1
+  const sel      = points.find(p => p.id === selectedId)
+  const sorted   = [...points].sort((a, b) => a.x - b.x)
+  const selIdx   = sel ? sorted.findIndex(p => p.id === sel.id) : -1
+  const hasLeft   = selIdx > 0
+  const hasRight  = selIdx < sorted.length - 1 && selIdx !== -1
   const isEndpoint = selIdx === 0 || selIdx === sorted.length - 1
 
   function update(id, patch) {
@@ -405,10 +383,9 @@ export default function SplineEditor({
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
-        width={W}
-        height={H}
+        width="100%"
         style={{ display: 'block', cursor: dragging ? 'grabbing' : 'crosshair', touchAction: 'none' }}
-        onMouseDown={handleSvgMouseDown}
+        onPointerDown={handleSvgPointerDown}
       >
         {/* Background hit area */}
         <rect data-bg="1" x={x0} y={0} width={beamLen} height={H} fill="transparent" />
@@ -448,7 +425,7 @@ export default function SplineEditor({
           </g>
         ))}
 
-        {/* Point load markers on the axis */}
+        {/* Point load markers */}
         {pointLoadXs.map((xm, i) => {
           const sx = toSvgX(xm, Ltot)
           return (
@@ -460,28 +437,23 @@ export default function SplineEditor({
         })}
 
         {/* Student spline — fill then stroke */}
-        {fillPath && (
-          <path d={fillPath} fill={fillColor} opacity="0.15" stroke="none" />
-        )}
-        {splinePath && (
-          <path d={splinePath} fill="none" stroke={fillColor} strokeWidth="2" strokeLinejoin="round" />
-        )}
+        {fillPath   && <path d={fillPath}   fill={fillColor} opacity="0.15" stroke="none" />}
+        {splinePath && <path d={splinePath} fill="none" stroke={fillColor} strokeWidth="2" strokeLinejoin="round" />}
 
         {/* Revealed answer overlay */}
         {revealPath && (
-          <path d={revealPath} fill="none" stroke="#16a34a" strokeWidth="2.5"
-            opacity="0.85" strokeLinejoin="round" />
+          <path d={revealPath} fill="none" stroke="#16a34a" strokeWidth="2.5" opacity="0.85" strokeLinejoin="round" />
         )}
 
         {/* Handles + knots */}
         {sortedPts.map((p, idx) => {
-          const isSel    = p.id === selectedId
-          const isEndPt  = idx === 0 || idx === sortedPts.length - 1
-          const kSvgX    = toSvgX(p.x, Ltot)
-          const kSvgY    = toSvgY(p.y, maxVal, invertY)
-          const depSvgY  = p.yExit !== null ? toSvgY(p.yExit, maxVal, invertY) : kSvgY
-          const hasLN    = idx > 0
-          const hasRN    = idx < sortedPts.length - 1
+          const isSel   = p.id === selectedId
+          const isEndPt = idx === 0 || idx === sortedPts.length - 1
+          const kSvgX   = toSvgX(p.x, Ltot)
+          const kSvgY   = toSvgY(p.y, maxVal, invertY)
+          const depSvgY = p.yExit !== null ? toSvgY(p.yExit, maxVal, invertY) : kSvgY
+          const hasLN   = idx > 0
+          const hasRN   = idx < sortedPts.length - 1
 
           return (
             <g key={p.id}>
@@ -491,10 +463,13 @@ export default function SplineEditor({
                   <line x1={kSvgX} y1={kSvgY}
                         x2={kSvgX + p.leftHandle.dx} y2={kSvgY + p.leftHandle.dy}
                         stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 2" />
+                  {/* Larger invisible hit area for handle */}
+                  <circle cx={kSvgX + p.leftHandle.dx} cy={kSvgY + p.leftHandle.dy}
+                    r="14" fill="transparent"
+                    onPointerDown={e => handleHandlePointerDown(e, p.id, 'left')} />
                   <circle cx={kSvgX + p.leftHandle.dx} cy={kSvgY + p.leftHandle.dy}
                     r="5" fill="#fff" stroke="#64748b" strokeWidth="1.5"
-                    style={{ cursor: 'grab' }}
-                    onMouseDown={e => handleHandleMouseDown(e, p.id, 'left')} />
+                    style={{ cursor: 'grab', pointerEvents: 'none' }} />
                 </>
               )}
 
@@ -505,19 +480,22 @@ export default function SplineEditor({
                         x2={kSvgX + p.rightHandle.dx} y2={depSvgY + p.rightHandle.dy}
                         stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 2" />
                   <circle cx={kSvgX + p.rightHandle.dx} cy={depSvgY + p.rightHandle.dy}
+                    r="14" fill="transparent"
+                    onPointerDown={e => handleHandlePointerDown(e, p.id, 'right')} />
+                  <circle cx={kSvgX + p.rightHandle.dx} cy={depSvgY + p.rightHandle.dy}
                     r="5" fill="#fff" stroke="#64748b" strokeWidth="1.5"
-                    style={{ cursor: 'grab' }}
-                    onMouseDown={e => handleHandleMouseDown(e, p.id, 'right')} />
+                    style={{ cursor: 'grab', pointerEvents: 'none' }} />
                 </>
               )}
 
-              {/* Knot circle */}
-              <circle cx={kSvgX} cy={kSvgY} r="6"
+              {/* Knot: large transparent hit area + visible circle */}
+              <circle cx={kSvgX} cy={kSvgY} r="18" fill="transparent"
+                onPointerDown={e => handleKnotPointerDown(e, p.id)}
+                onDoubleClick={e => handleKnotDblClick(e, p.id)} />
+              <circle cx={kSvgX} cy={kSvgY} r="7"
                 fill={isSel ? fillColor : '#fff'}
                 stroke={fillColor} strokeWidth="2"
-                style={{ cursor: isEndPt ? 'default' : 'grab' }}
-                onMouseDown={e => handleKnotMouseDown(e, p.id)}
-                onDoubleClick={e => handleKnotDblClick(e, p.id)}
+                style={{ cursor: isEndPt ? 'default' : 'grab', pointerEvents: 'none' }}
               />
 
               {/* Exit circle (departure y when discontinuous) */}
@@ -525,11 +503,12 @@ export default function SplineEditor({
                 <>
                   <line x1={kSvgX} y1={kSvgY} x2={kSvgX} y2={depSvgY}
                     stroke="#f97316" strokeWidth="1" strokeDasharray="3 2" />
-                  <circle cx={kSvgX} cy={depSvgY} r="6"
+                  <circle cx={kSvgX} cy={depSvgY} r="18" fill="transparent"
+                    onPointerDown={e => handleExitPointerDown(e, p.id)} />
+                  <circle cx={kSvgX} cy={depSvgY} r="7"
                     fill={isSel ? '#f97316' : '#fff'}
                     stroke="#f97316" strokeWidth="2"
-                    style={{ cursor: 'grab' }}
-                    onMouseDown={e => handleExitMouseDown(e, p.id)}
+                    style={{ cursor: 'grab', pointerEvents: 'none' }}
                   />
                 </>
               )}
@@ -541,54 +520,41 @@ export default function SplineEditor({
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: '0.3rem', padding: '0.4rem 0', flexWrap: 'wrap', alignItems: 'center' }}>
         <button style={btnStyle(sel?.leftType === 'bezier', !!sel && hasLeft && !isEndpoint)}
-          onClick={toggleLeftType} title="Toggle left segment type">
-          {sel?.leftType === 'bezier' ? '← Bez' : '← Lin'}
-        </button>
+          onClick={toggleLeftType}>← Bez</button>
         <button style={btnStyle(sel?.rightType === 'bezier', !!sel && hasRight && !isEndpoint)}
-          onClick={toggleRightType} title="Toggle right segment type">
-          {sel?.rightType === 'bezier' ? 'Bez →' : 'Lin →'}
-        </button>
+          onClick={toggleRightType}>Bez →</button>
         <button style={btnStyle(sel?.smooth, !!sel && !sel?.yExit && !isEndpoint)}
-          onClick={toggleSmooth} title="Toggle smooth / cusp">
-          {sel?.smooth ? 'Smooth' : 'Cusp'}
-        </button>
+          onClick={toggleSmooth}>{sel?.smooth ? 'Smooth' : 'Cusp'}</button>
         <button style={btnStyle(sel?.yExit !== null, !!sel && !isEndpoint)}
-          onClick={toggleJump} title="Toggle discontinuity (jump)">
-          {sel?.yExit !== null ? '⌇ Jump' : '⌇ Cont'}
-        </button>
-        <div style={{ width: 1, height: 18, background: '#e5e7eb', margin: '0 0.15rem' }} />
+          onClick={toggleJump}>{sel?.yExit !== null ? '⌇ Jump' : '⌇ Cont'}</button>
+        <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 0.1rem' }} />
         <button style={btnStyle(false, !!sel && !isEndpoint)}
-          onClick={deleteSelected} title="Delete selected point">
-          ✕ Delete
-        </button>
+          onClick={deleteSelected}>✕ Del</button>
         {startValue != null && (
           <>
-            <div style={{ width: 1, height: 18, background: '#e5e7eb', margin: '0 0.15rem' }} />
-            <button style={btnStyle(false, true)}
-              onClick={setStart} title="Set left endpoint to correct starting value">
-              Set start
-            </button>
+            <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 0.1rem' }} />
+            <button style={btnStyle(false, true)} onClick={setStart}>Set start</button>
           </>
         )}
         {!sel && (
           <span style={{ fontSize: '0.72rem', color: '#9ca3af', marginLeft: '0.25rem' }}>
-            Click grid to add a point
+            Tap to add a point
           </span>
         )}
       </div>
 
-      {/* Accuracy panel (shown after reveal) */}
+      {/* Accuracy panel */}
       {accuracy && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '1.25rem',
-          padding: '0.45rem 0.75rem',
+          display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
+          padding: '0.5rem 0.75rem',
           background: '#f9fafb', borderRadius: 6, border: '1px solid #e5e7eb',
-          fontSize: '0.78rem',
+          fontSize: '0.78rem', marginTop: '0.25rem',
         }}>
-          <span style={{ fontWeight: 600, color: '#6b7280', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <span style={{ fontWeight: 600, color: '#6b7280', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Accuracy
           </span>
-          <span>Value <strong style={{ color: accuracy.absScore >= 70 ? '#16a34a' : '#dc2626' }}>{accuracy.absScore}%</strong></span>
+          <span>Value <strong style={{ color: accuracy.absScore   >= 70 ? '#16a34a' : '#dc2626' }}>{accuracy.absScore}%</strong></span>
           <span>Shape <strong style={{ color: accuracy.slopeScore >= 70 ? '#16a34a' : '#dc2626' }}>{accuracy.slopeScore}%</strong></span>
           <span style={{ marginLeft: 'auto', fontWeight: 700, fontSize: '0.85rem', color: accuracy.total >= 70 ? '#16a34a' : '#dc2626' }}>
             Score: {accuracy.total}%
