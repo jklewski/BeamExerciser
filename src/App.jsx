@@ -146,6 +146,7 @@ export default function App() {
             nodes={nodePositions}
             pointLoadXs={pointLoadXs}
             startValue={vStartValue}
+            fillColor="#16a34a"
           />
         </div>
 
@@ -162,6 +163,7 @@ export default function App() {
             pointLoadXs={pointLoadXs}
             startValue={mStartValue}
             invertY
+            fillColor="#2563eb"
           />
         </div>
 
