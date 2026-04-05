@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /c/Users/nikle/Documents/webApp/StructuralDrawer/src/components/svg/*.jsx)",
+      "Bash(npm run:*)",
+      "Bash(python3 -c \"import sys, json; data = sys.stdin.read\\(\\); lines = [l for l in data.split\\('\\\\n'\\) if l.strip\\(\\)]; [print\\(json.loads\\(l\\).get\\('role',''\\), ':', str\\(json.loads\\(l\\).get\\('content',''\\)\\)[:500]\\) for l in lines[-5:] if l]\")",
+      "Bash(python3 -c ':*)",
+      "Bash(node -e ':*)",
+      "Bash(gh run:*)",
+      "Bash(curl -s \"https://api.github.com/repos/jklewski/Beamer2/actions/runs?per_page=3\")",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\); const j=JSON.parse\\(d\\); j.workflow_runs?.slice\\(0,3\\).forEach\\(r => console.log\\(r.status, r.conclusion, r.name, r.html_url\\)\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/jklewski/Beamer2/actions/runs/23919530774/jobs\")",
+      "Bash(curl -s \"https://api.github.com/repos/jklewski/Beamer2/actions/runs/23919530774/logs\" -L -o /tmp/logs.zip)",
+      "Read(//c/tmp/**)",
+      "Bash(unzip -o logs.zip -d logs_out)",
+      "Bash(grep -i \"error\\\\|npm ERR\\\\|failed\" logs_out/*.txt)"
+    ]
+  }
+}
